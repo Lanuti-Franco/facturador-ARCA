@@ -24,10 +24,12 @@ fiscales.
   automáticamente a la factura original, como exige ARCA.
 - **PDF con el QR obligatorio** (RG 4892/2020) directo al chat; `/pdf 5` lo
   regenera cuando quieras.
-- **`/mail 5 cliente@ejemplo.com`** — le manda la factura por email al
-  cliente desde tu propia casilla (Gmail + contraseña de aplicación, sin
-  servicios pagos ni dominio propio). El bot recuerda el email de cada
-  receptor: la próxima vez `/mail 5` a secas alcanza.
+- **La factura por email al cliente, sin salir del chat**: cada PDF emitido
+  llega con un botón **📧 Mandar por mail**. Si el bot no conoce el email del
+  receptor, se lo tirás ahí nomás y sale; a partir de ahí lo recuerda y la
+  próxima es un solo toque. Manda desde tu propia casilla (Gmail +
+  contraseña de aplicación, sin servicios pagos ni dominio propio). También
+  por comando: `/mail 5 cliente@ejemplo.com` para cualquier comprobante viejo.
 - **`/resumen 06/2026`** — lista del período con total (las NC restan).
 - **`/csv 06/2026`** — export listo para mandarle al contador.
 - **`/tope`** + alerta automática cuando tu facturado de 12 meses se acerca
@@ -54,8 +56,8 @@ fiscales.
 ## Instalación
 
 ```bash
-git clone https://github.com/Lanuti-Franco/proyecto-facturador-nuevo.git
-cd proyecto-facturador-nuevo
+git clone https://github.com/Lanuti-Franco/facturador-arca.git
+cd facturador-arca
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 

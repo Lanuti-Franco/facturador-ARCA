@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Servicio launchd (macOS) para que el bot corra siempre:
+  arranca al iniciar sesion y se relevanta solo si se cae.
+
+  1) Reemplaza RUTA_AL_PROYECTO por la ruta real (ej: /Users/vos/facturador)
+  2) cp com.facturador.plist ~/Library/LaunchAgents/
+  3) launchctl load ~/Library/LaunchAgents/com.facturador.plist
+
+  Tras cada cambio de codigo:
+     launchctl kickstart -k gui/$(id -u)/com.facturador
+  Con el servicio cargado NO corras el bot a mano (se pelean el polling).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.facturador</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>RUTA_AL_PROYECTO/.venv/bin/python</string>
+        <string>RUTA_AL_PROYECTO/bot_telegram.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>RUTA_AL_PROYECTO</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Si crashea en loop, espera 30s entre reintentos -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/facturador.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/facturador.log</string>
+</dict>
+</plist>

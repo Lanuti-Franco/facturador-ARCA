@@ -1,0 +1,7 @@
+# Versiones pineadas a las instaladas y probadas (Python 3.14).
+# Si actualizas alguna, proba el flujo completo antes de commitear el cambio.
+python-telegram-bot[job-queue]==22.8
+afip.py==1.2.0
+supabase==2.31.0
+python-dotenv==1.2.2
+segno==1.6.6

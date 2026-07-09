@@ -54,7 +54,8 @@ fiscales.
 ## Instalación
 
 ```bash
-git clone <este-repo> && cd <carpeta>
+git clone https://github.com/Lanuti-Franco/proyecto-facturador-nuevo.git
+cd proyecto-facturador-nuevo
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 

@@ -728,6 +728,46 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Tu chat_id es: {update.effective_chat.id}")
 
 
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Bienvenida (/start, /ayuda). SIN allowlist a proposito: al usuario no
+    autorizado lo guia a configurar su propia instancia (su chat_id)."""
+    chat_id = update.effective_chat.id
+
+    if MI_CHAT_ID is not None and chat_id != MI_CHAT_ID:
+        await update.message.reply_text(
+            "🧾 Hola, soy un facturador de ARCA — pero soy un bot personal: "
+            "solo le respondo a mi dueño.\n\n"
+            "¿Estás configurando tu propia instancia? Tu chat_id es:\n"
+            f"{chat_id}\n\n"
+            "Ponelo en MI_CHAT_ID en el .env y reiniciá el bot.\n\n"
+            "¿Querés tu propio facturador? El código es libre:\n"
+            "github.com/Lanuti-Franco/facturador-arca"
+        )
+        return
+
+    modo = "⚠️ MODO TEST (las facturas no son reales)" if not fac.PRODUCTION \
+        else "🔴 PRODUCCIÓN — las facturas son reales"
+    await update.message.reply_text(
+        "🧾 Hola, soy tu facturador de ARCA.\n"
+        "Emito Factura C (monotributo) desde este chat: CAE y PDF con QR "
+        "en segundos.\n\n"
+        "Facturar:\n"
+        "/facturar 15000 → consumidor final, directo al preview\n"
+        "/facturar → paso a paso (CUIT/DNI, fecha, período)\n"
+        "/lote 15000 20000 12500 → varias de un saque\n\n"
+        "Después de emitir:\n"
+        "📧 botón en cada PDF para mandarla por mail al cliente\n"
+        "/nc 5 → nota de crédito (anula o ajusta la factura 5)\n"
+        "/pdf 5 → regenerar un PDF\n\n"
+        "Control:\n"
+        "/resumen → el mes en curso, con total\n"
+        "/csv 06/2026 → export para tu contador\n"
+        "/tope → facturado 12 meses vs tu categoría\n"
+        "/ultima → reconciliar contra ARCA\n\n"
+        f"{modo}"
+    )
+
+
 def _parse_tipo_y_numero(args: list[str]) -> tuple[int, int, list[str]] | None:
     """Interpreta '[nc] <nro> [resto...]' -> (cbte_tipo, numero, resto)."""
     args = list(args)
@@ -1055,6 +1095,24 @@ async def job_resumen_mensual(context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+async def _registrar_menu(app) -> None:
+    """El menu de comandos que Telegram muestra al tipear '/'."""
+    from telegram import BotCommand
+    await app.bot.set_my_commands([
+        BotCommand("facturar", "Nueva Factura C (monto opcional de una)"),
+        BotCommand("lote", "Varias facturas de un saque"),
+        BotCommand("nc", "Nota de crédito sobre una factura"),
+        BotCommand("resumen", "Comprobantes del período + total"),
+        BotCommand("csv", "Export para el contador"),
+        BotCommand("mail", "Mandar un comprobante por email"),
+        BotCommand("pdf", "Regenerar el PDF de un comprobante"),
+        BotCommand("tope", "Facturado 12 meses vs tu categoría"),
+        BotCommand("ultima", "Reconciliar contra ARCA"),
+        BotCommand("ayuda", "Qué sé hacer"),
+        BotCommand("cancelar", "Cancelar el flujo actual"),
+    ])
+
+
 def main():
     if not TELEGRAM_TOKEN:
         raise SystemExit("Falta TELEGRAM_TOKEN en las variables de entorno.")
@@ -1067,7 +1125,7 @@ def main():
     if fac.supabase is None:
         logger.warning("Supabase no configurado: las facturas NO se van a guardar.")
 
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).post_init(_registrar_menu).build()
 
     conv = ConversationHandler(
         entry_points=[
@@ -1098,6 +1156,7 @@ def main():
     )
 
     app.add_handler(conv)
+    app.add_handler(CommandHandler(["start", "ayuda", "help"], cmd_start))
     app.add_handler(CommandHandler("id", cmd_id))
     app.add_handler(CommandHandler("ultima", cmd_ultima))
     app.add_handler(CommandHandler("pdf", cmd_pdf))

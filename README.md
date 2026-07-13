@@ -134,9 +134,14 @@ PRs bienvenidos.
 
 ## Ideas anotadas (roadmap sin promesas)
 
+- Logo propio en el PDF (`LOGO_PATH` en el `.env`, incrustado en base64 como
+  el QR — es legal: ARCA regula el contenido obligatorio, no la estética).
 - Systemd unit para correrlo en un VPS Linux.
 - Recordatorio de recategorización (enero/julio) usando el facturado que ya trackea.
 - Dockerfile para el que prefiera `docker compose up`.
+- Factura E (exportación): va por otro web service (WSFEX) — verificado.
+  Módulo nuevo, no adaptación. PRs bienvenidos.
+- Concepto por factura (hoy es por instancia via `CONCEPTO`).
 
 ## Disclaimer
 

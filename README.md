@@ -15,6 +15,9 @@ fiscales.
 
 - **Factura C** a consumidor final (default), o identificada con **CUIT/DNI**
   (valida dígito verificador) y condición de IVA por botones.
+- **Servicios o productos**: `CONCEPTO=2` (servicios, default) o `CONCEPTO=1`
+  (productos) en el `.env`. Con productos el bot ajusta solo las reglas de
+  ARCA: sin período de servicio y retroactividad de 5 días en vez de 10.
 - **Atajos de un solo mensaje**: `/facturar 15000`, `/facturar 15000 20-12345678-6`,
   `/facturar 15000 26/06` (fecha retroactiva, hasta 10 días),
   `/facturar 15000 01/06-30/06` (período facturado real).

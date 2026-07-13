@@ -103,32 +103,34 @@ async def mostrar_preview(mensaje, ud: dict) -> int:
     """Preview con Confirmar/Cancelar. `mensaje` es update.message o query.message."""
     fecha = ud.setdefault("fecha", hoy_ar())
     etiqueta_fecha = fecha.strftime("%d/%m/%Y") + (" (hoy)" if fecha == hoy_ar() else "")
-    if ud.get("serv_desde"):
-        etiqueta_periodo = (f"{ud['serv_desde'].strftime('%d/%m/%Y')} al "
-                            f"{ud['serv_hasta'].strftime('%d/%m/%Y')}")
+    if not fac.USA_PERIODO:
+        linea_periodo = ""          # productos: no existe periodo de servicio
+    elif ud.get("serv_desde"):
+        linea_periodo = (f"Período: {ud['serv_desde'].strftime('%d/%m/%Y')} al "
+                         f"{ud['serv_hasta'].strftime('%d/%m/%Y')}\n")
     else:
-        etiqueta_periodo = "= fecha de emisión"
+        linea_periodo = "Período: = fecha de emisión\n"
+    fila_extras = [InlineKeyboardButton("📅 Fecha", callback_data="fecha")]
+    if fac.USA_PERIODO:
+        fila_extras.append(InlineKeyboardButton("📆 Período", callback_data="periodo"))
     botones = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("✅ Confirmar", callback_data="confirmar"),
             InlineKeyboardButton("❌ Cancelar", callback_data="cancelar"),
         ],
-        [
-            InlineKeyboardButton("📅 Fecha", callback_data="fecha"),
-            InlineKeyboardButton("📆 Período", callback_data="periodo"),
-        ],
+        fila_extras,
     ])
     linea_detalle = f"Detalle: {ud['descripcion']}\n" if ud.get("descripcion") else ""
     umbral = fac.aviso_umbral(ud["monto"], ud["doc_tipo"])
     linea_umbral = f"{umbral}\n\n" if umbral else ""
     await mensaje.reply_text(
         f"Vas a emitir:\n\n"
-        f"Factura C — Servicios\n"
+        f"Factura C — {fac.CONCEPTO_DESC}\n"
         f"Receptor: {descripcion_receptor(ud)}\n"
         f"Total: ${fmt_ars(ud['monto'])}\n"
         f"{linea_detalle}"
         f"Fecha: {etiqueta_fecha}\n"
-        f"Período: {etiqueta_periodo}\n\n"
+        f"{linea_periodo}\n"
         f"{linea_umbral}"
         f"{'⚠️ MODO TEST (no es real)' if not fac.PRODUCTION else '🔴 PRODUCCIÓN (real)'}\n\n"
         f"¿Confirmás?",
@@ -168,6 +170,12 @@ async def facturar(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 continue
             periodo = fac.parsear_periodo(extra)
             if periodo is not None:
+                if not fac.USA_PERIODO:
+                    await update.message.reply_text(
+                        "Esta instancia factura productos (CONCEPTO=1): "
+                        "no existe el período de servicio."
+                    )
+                    return ConversationHandler.END
                 context.user_data["serv_desde"], context.user_data["serv_hasta"] = periodo
                 continue
             fecha = fac.parsear_fecha(extra)
@@ -468,6 +476,12 @@ async def lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for arg in fac.normalizar_args(args):
         periodo = fac.parsear_periodo(arg)
         if periodo is not None:
+            if not fac.USA_PERIODO:
+                await update.message.reply_text(
+                    "Esta instancia factura productos (CONCEPTO=1): "
+                    "no existe el período de servicio."
+                )
+                return ConversationHandler.END
             context.user_data["serv_desde"], context.user_data["serv_hasta"] = periodo
             continue
         fecha = fac.parsear_fecha(arg)
@@ -500,11 +514,13 @@ async def lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["montos"] = montos
     fecha = context.user_data.setdefault("fecha", hoy_ar())
     etiqueta_fecha = fecha.strftime("%d/%m/%Y") + (" (hoy)" if fecha == hoy_ar() else "")
-    if context.user_data.get("serv_desde"):
-        etiqueta_periodo = (f"{context.user_data['serv_desde'].strftime('%d/%m/%Y')} al "
-                            f"{context.user_data['serv_hasta'].strftime('%d/%m/%Y')}")
+    if not fac.USA_PERIODO:
+        linea_periodo = ""
+    elif context.user_data.get("serv_desde"):
+        linea_periodo = (f"Período: {context.user_data['serv_desde'].strftime('%d/%m/%Y')} al "
+                         f"{context.user_data['serv_hasta'].strftime('%d/%m/%Y')}\n")
     else:
-        etiqueta_periodo = "= fecha de emisión"
+        linea_periodo = "Período: = fecha de emisión\n"
 
     lineas = "\n".join(f"{i}. ${fmt_ars(m)}" for i, m in enumerate(montos, 1))
     botones = InlineKeyboardMarkup([[
@@ -516,11 +532,11 @@ async def lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     umbrales = [fac.aviso_umbral(m, fac.DOC_TIPO_CF) for m in montos]
     linea_umbral = next((f"{u}\n\n" for u in umbrales if u), "")
     await update.message.reply_text(
-        f"Vas a emitir {len(montos)} Facturas C — Servicios\n"
+        f"Vas a emitir {len(montos)} Facturas C — {fac.CONCEPTO_DESC}\n"
         f"Receptor: Consumidor Final (todas)\n"
         f"{linea_detalle}"
         f"Fecha: {etiqueta_fecha}\n"
-        f"Período: {etiqueta_periodo}\n\n"
+        f"{linea_periodo}\n"
         f"{lineas}\n\n"
         f"{linea_umbral}"
         f"Total del lote: ${fmt_ars(sum(montos))}\n\n"
@@ -773,13 +789,14 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     modo = "⚠️ MODO TEST (las facturas no son reales)" if not fac.PRODUCTION \
         else "🔴 PRODUCCIÓN — las facturas son reales"
+    extras = "CUIT/DNI, fecha, período" if fac.USA_PERIODO else "CUIT/DNI, fecha"
     await update.message.reply_text(
         "🧾 Hola, soy tu facturador de ARCA.\n"
-        "Emito Factura C (monotributo) desde este chat: CAE y PDF con QR "
-        "en segundos.\n\n"
+        f"Emito Factura C de {fac.CONCEPTO_DESC.lower()} (monotributo) desde "
+        "este chat: CAE y PDF con QR en segundos.\n\n"
         "Facturar:\n"
         "/facturar 15000 → consumidor final, directo al preview\n"
-        "/facturar → paso a paso (CUIT/DNI, fecha, período)\n"
+        f"/facturar → paso a paso ({extras})\n"
         "/lote 15000 20000 12500 → varias de un saque\n\n"
         "Después de emitir:\n"
         "📧 botón en cada PDF para mandarla por mail al cliente\n"
@@ -821,8 +838,9 @@ def _cargar_comprobante(tipo: int, numero: int) -> tuple[dict, dict, dict] | Non
         "CAE": fila["cae"],
         "CAEFchVto": fila["cae_vto"],
         "fecha_int": int(fila["fecha_cbte"].replace("-", "")),
-        "serv_desde_int": int((fila["fch_serv_desde"] or fila["fecha_cbte"]).replace("-", "")),
-        "serv_hasta_int": int((fila["fch_serv_hasta"] or fila["fecha_cbte"]).replace("-", "")),
+        # None si es concepto 1 (productos): el PDF omite el bloque de periodo
+        "serv_desde_int": int(fila["fch_serv_desde"].replace("-", "")) if fila.get("fch_serv_desde") else None,
+        "serv_hasta_int": int(fila["fch_serv_hasta"].replace("-", "")) if fila.get("fch_serv_hasta") else None,
         "cbte_tipo": fila["cbte_tipo"],
         "asociado_nro": fila.get("asociado_cbte_nro"),
     }

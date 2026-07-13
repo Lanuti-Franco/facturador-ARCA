@@ -64,7 +64,17 @@ else:
 
 FACTURA_C = 11
 NOTA_CREDITO_C = 13
-CONCEPTO_SERVICIOS = 2
+# Que vendes: 1 = Productos, 2 = Servicios (default), 3 = ambos.
+# Se define por instancia en el .env. OJO: no es la letra del comprobante
+# (eso sigue siendo Factura C) — es el campo Concepto del WSFE, y cambia
+# las reglas: con productos (1) no hay periodo de servicio y la ventana
+# retroactiva baja de 10 a 5 dias. Verificado en homologacion (jul-2026).
+CONCEPTO = int(os.environ.get("CONCEPTO", "2"))
+if CONCEPTO not in (1, 2, 3):
+    raise SystemExit(f"CONCEPTO={CONCEPTO} inválido: usá 1 (productos), 2 (servicios) o 3 (ambos).")
+CONCEPTO_DESC = {1: "Productos", 2: "Servicios", 3: "Productos y Servicios"}[CONCEPTO]
+# Las fechas de servicio (periodo) existen solo para conceptos 2 y 3.
+USA_PERIODO = CONCEPTO != 1
 
 # Titulo y codigo impresos en el PDF segun tipo de comprobante
 TIPOS_CBTE = {
@@ -122,8 +132,9 @@ CONDICIONES_IVA = {
     5: "Consumidor Final",
 }
 
-# WSFE acepta CbteFch hasta 10 dias hacia atras para servicios (concepto 2/3).
-DIAS_ATRAS_MAX = 10
+# WSFE acepta CbteFch hacia atras: 10 dias para servicios (concepto 2/3),
+# 5 para productos (concepto 1).
+DIAS_ATRAS_MAX = 10 if USA_PERIODO else 5
 
 # Las fechas de los comprobantes SIEMPRE en hora argentina, aunque corra en
 # un host en UTC (si no, de 21:00 a 00:00 la factura sale con fecha del dia
@@ -316,23 +327,24 @@ def emitir_factura_c(importe_total: float, doc_tipo: int, doc_nro: int,
     ultimo = afip.ElectronicBilling.getLastVoucher(PUNTO_DE_VENTA, cbte_tipo)
     numero = ultimo + 1
     fecha_int = int(fecha.strftime("%Y%m%d"))
-    # Periodo facturado: si no se indica, default = fecha de emision.
-    desde_int = int((serv_desde or fecha).strftime("%Y%m%d"))
-    hasta_int = int((serv_hasta or fecha).strftime("%Y%m%d"))
+    # Periodo facturado (solo servicios): si no se indica, default = emision.
+    # Para productos (concepto 1) estas fechas NO deben mandarse a ARCA.
+    if USA_PERIODO:
+        desde_int = int((serv_desde or fecha).strftime("%Y%m%d"))
+        hasta_int = int((serv_hasta or fecha).strftime("%Y%m%d"))
+    else:
+        desde_int = hasta_int = None
 
     data = {
         "CantReg": 1,
         "PtoVta": PUNTO_DE_VENTA,
         "CbteTipo": cbte_tipo,
-        "Concepto": CONCEPTO_SERVICIOS,
+        "Concepto": CONCEPTO,
         "DocTipo": doc_tipo,
         "DocNro": doc_nro,
         "CbteDesde": numero,
         "CbteHasta": numero,
         "CbteFch": fecha_int,
-        "FchServDesde": desde_int,
-        "FchServHasta": hasta_int,
-        "FchVtoPago": fecha_int,
         "ImpTotal": importe_total,
         "ImpTotConc": 0,
         "ImpNeto": importe_total,      # Factura C: neto = total
@@ -343,6 +355,11 @@ def emitir_factura_c(importe_total: float, doc_tipo: int, doc_nro: int,
         "MonCotiz": 1,
         "CondicionIVAReceptorId": cond_iva,
     }
+
+    if USA_PERIODO:
+        data["FchServDesde"] = desde_int
+        data["FchServHasta"] = hasta_int
+        data["FchVtoPago"] = fecha_int
 
     if asociado_nro is not None:
         # NC/ND deben referenciar el comprobante original (RG 4540/2019)
@@ -388,10 +405,11 @@ def guardar_factura(res: dict, importe_total: float, doc_tipo: int, doc_nro: int
         "pto_vta": PUNTO_DE_VENTA,
         "cbte_tipo": res.get("cbte_tipo", FACTURA_C),
         "cbte_nro": res["numero"],
-        "concepto": CONCEPTO_SERVICIOS,
+        "concepto": CONCEPTO,
         "imp_total": importe_total,
-        "fch_serv_desde": _fecha_int_a_iso(res["serv_desde_int"]),
-        "fch_serv_hasta": _fecha_int_a_iso(res["serv_hasta_int"]),
+        # NULL en concepto 1 (productos): no hay periodo de servicio
+        "fch_serv_desde": _fecha_int_a_iso(res["serv_desde_int"]) if res.get("serv_desde_int") else None,
+        "fch_serv_hasta": _fecha_int_a_iso(res["serv_hasta_int"]) if res.get("serv_hasta_int") else None,
         "cae": res["CAE"],
         "cae_vto": res["CAEFchVto"],        # el SDK ya lo devuelve como yyyy-mm-dd
         "fecha_cbte": _fecha_int_a_iso(res["fecha_int"]),
@@ -714,8 +732,15 @@ def _html_factura(res: dict, ud: dict) -> str:
         return datetime.strptime(str(fecha_int), "%Y%m%d").strftime("%d/%m/%Y")
 
     fecha = _fmt(res["fecha_int"])
-    serv_desde = _fmt(res.get("serv_desde_int") or res["fecha_int"])
-    serv_hasta = _fmt(res.get("serv_hasta_int") or res["fecha_int"])
+    if res.get("serv_desde_int"):
+        bloque_periodo = (
+            f'<div class="bloque"><div class="fila">'
+            f'<b>Período Facturado Desde:</b> {_fmt(res["serv_desde_int"])}'
+            f'&nbsp;&nbsp;<b>Hasta:</b> {_fmt(res["serv_hasta_int"])}'
+            f'&nbsp;&nbsp;<b>Fecha de Vto. para el pago:</b> {fecha}</div></div>'
+        )
+    else:
+        bloque_periodo = ""   # productos (concepto 1): sin periodo de servicio
     cae_vto = datetime.strptime(res["CAEFchVto"], "%Y-%m-%d").strftime("%d/%m/%Y")
     qr_png = segno.make(url_qr_arca(res, ud), error="m").png_data_uri(scale=4)
 
@@ -783,11 +808,7 @@ def _html_factura(res: dict, ud: dict) -> str:
       <div class="fila"><b>Inicio de Actividades:</b> {EMISOR_INICIO_ACTIVIDADES}</div>
     </div>
   </div>
-  <div class="bloque">
-    <div class="fila"><b>Período Facturado Desde:</b> {serv_desde}
-      &nbsp;&nbsp;<b>Hasta:</b> {serv_hasta}
-      &nbsp;&nbsp;<b>Fecha de Vto. para el pago:</b> {fecha}</div>
-  </div>
+  {bloque_periodo}
   <div class="bloque">
     <div class="fila"><b>CUIT / DNI:</b> {receptor_doc}
       &nbsp;&nbsp;<b>Condición frente al IVA:</b> {receptor_cond}</div>

@@ -134,6 +134,9 @@ PRs bienvenidos.
 
 ## Ideas anotadas (roadmap sin promesas)
 
+- Aviso de vencimiento del certificado: duran 2 años, y el bot ya lo tiene
+  cargado en memoria — puede leer su propia fecha de expiración y avisar
+  (al arrancar y en el resumen mensual) cuando falten <60 días.
 - Logo propio en el PDF (`LOGO_PATH` en el `.env`, incrustado en base64 como
   el QR — es legal: ARCA regula el contenido obligatorio, no la estética).
 - Systemd unit para correrlo en un VPS Linux.

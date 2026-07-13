@@ -18,8 +18,15 @@ fiscales.
 - **Atajos de un solo mensaje**: `/facturar 15000`, `/facturar 15000 20-12345678-6`,
   `/facturar 15000 26/06` (fecha retroactiva, hasta 10 días),
   `/facturar 15000 01/06-30/06` (período facturado real).
+- **Detalle propio por factura**: `/facturar 15000 "diseño web, junio"` y el
+  PDF sale con ese texto en el renglón (sin comillas usa tu
+  `FACTURA_DESCRIPCION` de siempre). ARCA no lo recibe — es dato del PDF.
 - **`/lote 15000 20000 12500 01/06-30/06`** — varias facturas de un saque,
-  todas a consumidor final, con preview del total antes de confirmar.
+  todas a consumidor final, con preview del total antes de confirmar
+  (acepta `"detalle"` compartido también).
+- **Alerta de umbral de identificación** (RG 5700/2025): si un monto a
+  consumidor final anónimo alcanza el umbral vigente (`UMBRAL_CF` en el
+  `.env`), el preview te frena antes de que ARCA te rechace.
 - **`/nc 5 [monto]`** — Nota de Crédito C (total o parcial) asociada
   automáticamente a la factura original, como exige ARCA.
 - **PDF con el QR obligatorio** (RG 4892/2020) directo al chat; `/pdf 5` lo

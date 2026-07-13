@@ -111,3 +111,9 @@ alter table facturas_emitidas
 -- y la proxima vez /mail <nro> alcanza.
 alter table clientes
   add column if not exists email text;
+
+-- Detalle libre del comprobante (lo que se imprime en el PDF, ej:
+-- "Honorarios diseño web, junio"). NULL = usa FACTURA_DESCRIPCION del .env.
+-- ARCA no lo recibe: es dato del PDF, no del comprobante electronico.
+alter table facturas_emitidas
+  add column if not exists descripcion text;

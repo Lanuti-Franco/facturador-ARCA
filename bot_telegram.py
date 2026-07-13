@@ -10,7 +10,10 @@ Comandos:
     /facturar 15000 20-12345678-6  -> atajo: pide condicion IVA y preview
     /facturar 15000 26/06          -> atajo con fecha retroactiva
     /facturar 15000 01/06-30/06    -> atajo con periodo facturado
-    (doc, fecha y periodo se combinan en cualquier orden despues del monto)
+    /facturar 15000 "diseño web junio" -> con detalle propio en el PDF
+    (doc, fecha, periodo y "detalle" se combinan en cualquier orden)
+    + alerta si un monto a CF anonimo alcanza el umbral de identificacion
+      (UMBRAL_CF en el .env, RG 5700/2025)
     /lote 15000 20000 12500 [fecha] [periodo]
         -> varias facturas de un saque, todas a consumidor final sin datos
     /nc 5 [monto]   -> Nota de Credito C asociada a la Factura 5 (total o parcial)
@@ -115,13 +118,18 @@ async def mostrar_preview(mensaje, ud: dict) -> int:
             InlineKeyboardButton("📆 Período", callback_data="periodo"),
         ],
     ])
+    linea_detalle = f"Detalle: {ud['descripcion']}\n" if ud.get("descripcion") else ""
+    umbral = fac.aviso_umbral(ud["monto"], ud["doc_tipo"])
+    linea_umbral = f"{umbral}\n\n" if umbral else ""
     await mensaje.reply_text(
         f"Vas a emitir:\n\n"
         f"Factura C — Servicios\n"
         f"Receptor: {descripcion_receptor(ud)}\n"
         f"Total: ${fmt_ars(ud['monto'])}\n"
+        f"{linea_detalle}"
         f"Fecha: {etiqueta_fecha}\n"
         f"Período: {etiqueta_periodo}\n\n"
+        f"{linea_umbral}"
         f"{'⚠️ MODO TEST (no es real)' if not fac.PRODUCTION else '🔴 PRODUCCIÓN (real)'}\n\n"
         f"¿Confirmás?",
         reply_markup=botones,
@@ -136,7 +144,10 @@ async def mostrar_preview(mensaje, ud: dict) -> int:
 async def facturar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Entrada. Sin args: mini menu. Con args: atajos de un solo mensaje."""
     context.user_data.clear()
-    args = fac.normalizar_args(context.args or [])
+    descripcion, args = fac.extraer_descripcion(context.args or [])
+    if descripcion:
+        context.user_data["descripcion"] = descripcion
+    args = fac.normalizar_args(args)
 
     # Atajo: /facturar <monto> [cuit/dni] [fecha] [periodo]
     if args:
@@ -386,7 +397,8 @@ async def confirmar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 2) Guardar en Supabase. Si esto falla, la factura YA existe en AFIP:
     #    te avisamos explicito para que no quede desprolijo en silencio.
     try:
-        fac.guardar_factura(res, ud["monto"], ud["doc_tipo"], ud["doc_nro"], ud["cond_iva"])
+        fac.guardar_factura(res, ud["monto"], ud["doc_tipo"], ud["doc_nro"],
+                            ud["cond_iva"], ud.get("descripcion"))
         guardado_ok = True
     except Exception as e:
         guardado_ok = False
@@ -449,7 +461,11 @@ async def lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     montos = []
 
-    for arg in fac.normalizar_args(context.args or []):
+    descripcion, args = fac.extraer_descripcion(context.args or [])
+    if descripcion:
+        context.user_data["descripcion"] = descripcion
+
+    for arg in fac.normalizar_args(args):
         periodo = fac.parsear_periodo(arg)
         if periodo is not None:
             context.user_data["serv_desde"], context.user_data["serv_hasta"] = periodo
@@ -495,12 +511,18 @@ async def lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
         InlineKeyboardButton("✅ Confirmar todas", callback_data="confirmar"),
         InlineKeyboardButton("❌ Cancelar", callback_data="cancelar"),
     ]])
+    linea_detalle = (f"Detalle: {context.user_data['descripcion']}\n"
+                     if context.user_data.get("descripcion") else "")
+    umbrales = [fac.aviso_umbral(m, fac.DOC_TIPO_CF) for m in montos]
+    linea_umbral = next((f"{u}\n\n" for u in umbrales if u), "")
     await update.message.reply_text(
         f"Vas a emitir {len(montos)} Facturas C — Servicios\n"
         f"Receptor: Consumidor Final (todas)\n"
+        f"{linea_detalle}"
         f"Fecha: {etiqueta_fecha}\n"
         f"Período: {etiqueta_periodo}\n\n"
         f"{lineas}\n\n"
+        f"{linea_umbral}"
         f"Total del lote: ${fmt_ars(sum(montos))}\n\n"
         f"{'⚠️ MODO TEST (no es real)' if not fac.PRODUCTION else '🔴 PRODUCCIÓN (real)'}\n\n"
         f"¿Confirmás?",
@@ -546,7 +568,8 @@ async def confirmar_lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # 2) Guardar en el log
         try:
-            fac.guardar_factura(res, monto, fac.DOC_TIPO_CF, fac.DOC_NRO_CF, fac.COND_IVA_CF)
+            fac.guardar_factura(res, monto, fac.DOC_TIPO_CF, fac.DOC_NRO_CF,
+                                fac.COND_IVA_CF, ud.get("descripcion"))
         except Exception as e:
             logger.error("Factura %s emitida pero fallo el guardado: %s", res["numero"], e)
             linea += "\n⚠️ No se guardó en Supabase: anotala manualmente."
@@ -554,7 +577,8 @@ async def confirmar_lote(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # 3) PDF
         ud_factura = {"monto": monto, "doc_tipo": fac.DOC_TIPO_CF,
-                      "doc_nro": fac.DOC_NRO_CF, "cond_iva": fac.COND_IVA_CF}
+                      "doc_nro": fac.DOC_NRO_CF, "cond_iva": fac.COND_IVA_CF,
+                      "descripcion": ud.get("descripcion")}
         try:
             pdf_url = fac.generar_pdf(res, ud_factura)
             await query.message.reply_document(
@@ -637,6 +661,7 @@ async def nc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ud["doc_tipo"] = fila["doc_tipo"]
     ud["doc_nro"] = fila["doc_nro"]
     ud["cond_iva"] = fila["condicion_iva_receptor"]
+    ud["descripcion"] = fila.get("descripcion")   # la NC hereda el detalle
     if fila.get("fch_serv_desde"):
         ud["serv_desde"] = date.fromisoformat(fila["fch_serv_desde"])
         ud["serv_hasta"] = date.fromisoformat(fila["fch_serv_hasta"])
@@ -686,7 +711,8 @@ async def confirmar_nc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     try:
-        fac.guardar_factura(res, ud["monto"], ud["doc_tipo"], ud["doc_nro"], ud["cond_iva"])
+        fac.guardar_factura(res, ud["monto"], ud["doc_tipo"], ud["doc_nro"],
+                            ud["cond_iva"], ud.get("descripcion"))
         guardado_ok = True
     except Exception as e:
         guardado_ok = False
@@ -805,6 +831,7 @@ def _cargar_comprobante(tipo: int, numero: int) -> tuple[dict, dict, dict] | Non
         "doc_tipo": fila["doc_tipo"],
         "doc_nro": fila["doc_nro"],
         "cond_iva": fila["condicion_iva_receptor"],
+        "descripcion": fila.get("descripcion"),
     }
     return fila, res, ud
 

@@ -79,6 +79,12 @@ MONOTRIBUTO_TOPE = (
     float(os.environ["MONOTRIBUTO_TOPE"]) if os.environ.get("MONOTRIBUTO_TOPE") else None
 )
 
+# Umbral de identificacion del consumidor final (RG 5700/2025: $10.000.000).
+# Igual o arriba de este monto NO se puede facturar a CF anonimo: hay que
+# identificar al receptor. Se actualiza por resolucion -> vive en el .env.
+# Vacio = alerta desactivada.
+UMBRAL_CF = float(os.environ["UMBRAL_CF"]) if os.environ.get("UMBRAL_CF") else None
+
 # Datos del emisor para el PDF (opcionales; si faltan, el PDF sale con "-").
 # El nombre debe coincidir con el que figura en ARCA.
 EMISOR_NOMBRE = os.environ.get("EMISOR_NOMBRE", "-")
@@ -207,6 +213,20 @@ def normalizar_args(args: list[str]) -> list[str]:
         texto,
     )
     return texto.split()
+
+
+def extraer_descripcion(args: list[str]) -> tuple[str | None, list[str]]:
+    """Saca el texto entre comillas de los args: ("detalle", args restantes).
+
+    Telegram parte por espacios, asi que '"diseño web junio"' llega en
+    pedazos; aca se rearma. Acepta comillas rectas y tipograficas.
+    """
+    texto = " ".join(args)
+    m = re.search(r'["“”\'‘’]([^"“”\'‘’]+)["“”\'‘’]', texto)
+    if not m:
+        return None, args
+    resto = (texto[:m.start()] + " " + texto[m.end():]).split()
+    return m.group(1).strip(), resto
 
 
 def parsear_periodo(texto: str) -> tuple[date, date] | None:
@@ -352,7 +372,8 @@ def _fecha_int_a_iso(fecha_int: int) -> str:
     return f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
 
 
-def guardar_factura(res: dict, importe_total: float, doc_tipo: int, doc_nro: int, cond_iva: int) -> None:
+def guardar_factura(res: dict, importe_total: float, doc_tipo: int, doc_nro: int,
+                    cond_iva: int, descripcion: str | None = None) -> None:
     """Guarda el comprobante emitido. Lanza excepcion si falla (para avisar)."""
     if supabase is None:
         raise RuntimeError("Supabase no configurado (falta URL o key en el .env)")
@@ -375,10 +396,12 @@ def guardar_factura(res: dict, importe_total: float, doc_tipo: int, doc_nro: int
         "cae_vto": res["CAEFchVto"],        # el SDK ya lo devuelve como yyyy-mm-dd
         "fecha_cbte": _fecha_int_a_iso(res["fecha_int"]),
     }
-    # Solo las NC llevan la columna nueva: asi las facturas comunes siguen
-    # guardandose aunque la migracion de asociado_cbte_nro no haya corrido.
+    # Columnas de migraciones posteriores: solo se mandan si tienen valor,
+    # asi el guardado basico sigue funcionando aunque falte alguna migracion.
     if res.get("asociado_nro") is not None:
         fila["asociado_cbte_nro"] = res["asociado_nro"]
+    if descripcion:
+        fila["descripcion"] = descripcion
 
     # .execute() lanza error si el unique rebota (duplicado) -> lo dejamos propagar
     supabase.table("facturas_emitidas").insert(fila).execute()
@@ -632,6 +655,17 @@ def total_facturado_12m() -> float:
     )
 
 
+def aviso_umbral(monto: float, doc_tipo: int) -> str | None:
+    """Advertencia si el monto exige identificar al receptor (RG 5700/2025)."""
+    if UMBRAL_CF is None or doc_tipo != DOC_TIPO_CF or monto < UMBRAL_CF:
+        return None
+    return (
+        f"🛑 OJO: ${fmt_ars(monto)} está en o sobre el umbral de "
+        f"${fmt_ars(UMBRAL_CF)} — a consumidor final ANÓNIMO no se puede: "
+        f"tenés que identificar al receptor (CUIT/DNI)."
+    )
+
+
 def aviso_tope() -> str | None:
     """Advertencia si el facturado 12m se acerca al tope de la categoria."""
     if MONOTRIBUTO_TOPE is None:
@@ -701,6 +735,7 @@ def _html_factura(res: dict, ud: dict) -> str:
         receptor_cond = "Consumidor Final"
 
     total = fmt_ars(ud["monto"])
+    descripcion = ud.get("descripcion") or FACTURA_DESCRIPCION
 
     return f"""
 <style>
@@ -761,7 +796,7 @@ def _html_factura(res: dict, ud: dict) -> str:
   <div class="bloque">
     <table>
       <tr><th>Descripción</th><th class="der">Subtotal</th></tr>
-      <tr><td>{FACTURA_DESCRIPCION}</td><td class="der">$ {total}</td></tr>
+      <tr><td>{descripcion}</td><td class="der">$ {total}</td></tr>
     </table>
   </div>
   <div class="bloque der">

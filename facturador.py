@@ -102,6 +102,11 @@ EMISOR_DOMICILIO = os.environ.get("EMISOR_DOMICILIO", "-")
 EMISOR_INICIO_ACTIVIDADES = os.environ.get("EMISOR_INICIO_ACTIVIDADES", "-")
 FACTURA_DESCRIPCION = os.environ.get("FACTURA_DESCRIPCION", "Servicios")
 
+# Logo opcional para el encabezado del PDF (PNG o JPG; vacío = sin logo).
+# Se incrusta como data URI en el HTML, igual que el QR. Se lee en cada
+# PDF: cambiar el archivo no requiere reiniciar el bot.
+LOGO_PATH = os.environ.get("LOGO_PATH")
+
 # Email saliente (para mandarle la factura al cliente). Con Gmail:
 # SMTP_USER = tu casilla, SMTP_PASS = una "contraseña de aplicación"
 # (myaccount.google.com/apppasswords — NO tu contraseña normal).
@@ -762,6 +767,16 @@ def _html_factura(res: dict, ud: dict) -> str:
     total = fmt_ars(ud["monto"])
     descripcion = ud.get("descripcion") or FACTURA_DESCRIPCION
 
+    bloque_logo = ""
+    if LOGO_PATH:
+        try:
+            with open(LOGO_PATH, "rb") as f:
+                logo_b64 = base64.b64encode(f.read()).decode()
+            mime = "png" if LOGO_PATH.lower().endswith(".png") else "jpeg"
+            bloque_logo = f'<img class="logo" src="data:image/{mime};base64,{logo_b64}" alt="">'
+        except OSError:
+            logger.warning("No pude leer el logo (%s): el PDF sale sin logo.", LOGO_PATH)
+
     return f"""
 <style>
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
@@ -779,6 +794,7 @@ def _html_factura(res: dict, ud: dict) -> str:
   .letra .c {{ font-size: 26px; font-weight: bold; line-height: 1; }}
   .letra .cod {{ font-size: 8px; }}
   h1 {{ font-size: 16px; margin-bottom: 8px; }}
+  .logo {{ display: block; max-height: 56px; max-width: 200px; margin-bottom: 8px; }}
   .fila {{ margin: 3px 0; }}
   .bloque {{ padding: 10px 14px; border-bottom: 1px solid #111; }}
   table {{ width: 100%; border-collapse: collapse; }}
@@ -794,6 +810,7 @@ def _html_factura(res: dict, ud: dict) -> str:
   <div class="cabecera">
     <div class="letra"><div class="c">C</div><div class="cod">{codigo}</div></div>
     <div class="col col-izq">
+      {bloque_logo}
       <h1>{EMISOR_NOMBRE}</h1>
       <div class="fila"><b>Razón Social:</b> {EMISOR_NOMBRE}</div>
       <div class="fila"><b>Domicilio Comercial:</b> {EMISOR_DOMICILIO}</div>

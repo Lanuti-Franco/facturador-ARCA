@@ -12,6 +12,7 @@
 *.pem
 
 # Varios
+testlogo.jpeg
 .DS_Store
 .venv/
 __pycache__/

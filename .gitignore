@@ -12,14 +12,7 @@
 *.pem
 
 # Varios
-files.zip
 .DS_Store
 .venv/
 __pycache__/
-
-# Documento de trabajo interno (no va al repo publico)
-HANDOFF_facturador.md
-
-# Config local de herramientas
-.claude/
 

@@ -57,8 +57,8 @@ fiscales.
 2. **Certificado digital de ARCA + punto de venta tipo Web Service** — es un
    trámite de una sola vez, sin darle tu clave fiscal a nadie:
    está paso a paso en [`fase0-setup-arca.md`](fase0-setup-arca.md).
-3. **Un bot de Telegram** — gratis con [@BotFather](https://t.me/BotFather).
-   Le hablás, creás un bot y te guardás el TOKEN en un lugar seguro. 
+3. **Un bot de Telegram** — gratis: buscá **@BotFather** en Telegram,
+   le hablás, creás un bot y te guardás el TOKEN en un lugar seguro.
 4. **Cuenta en [Afip SDK](https://afipsdk.com)** (plan free alcanza) — es el
    intermediario con los web services de ARCA. ⚠️ Leé la nota de seguridad.
 5. **Proyecto en [Supabase](https://supabase.com)** (plan free alcanza) para
